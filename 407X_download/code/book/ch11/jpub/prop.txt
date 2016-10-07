@@ -1,0 +1,7 @@
+jpub.user=benchmark/benchmark
+jpub.methods=all
+jpub.builtintypes=jdbc   
+jpub.numbertypes=objectjdbc
+jpub.usertypes=oracle
+jpub.package=book.ch11.jpub
+jpub.input=input.txt

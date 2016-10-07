@@ -1,0 +1,7 @@
+jpub.user=benchmark/benchmark
+jpub.methods=all
+jpub.builtintypes=jdbc   
+jpub.numbertypes=objectjdbc
+jpub.usertypes=jdbc
+jpub.package=book.ch10.jpub
+jpub.input=input_address.txt.auto

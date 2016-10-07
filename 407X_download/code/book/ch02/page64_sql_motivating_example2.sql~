@@ -1,0 +1,148 @@
+spool sql_motivating_example2
+set echo on
+set doc off
+set timing off
+-- for each department get the name of the employee with max salary,
+-- if duplicates show all employees
+-- 
+--   dept salary employee
+/*
+  for each dept get the employees who earn above average or average
+  salary for the department. insert the employee records into 
+  above_avg_emp table.
+  insert the remaining employees into below_avg_emp table.
+set autotrace traceonly statistics;
+set timing on
+*/
+drop table emp;
+create table emp as
+select 'name' ||rownum as ename, 
+       (mod( rownum, 3 ) + 1)*10 as deptno, 
+       trunc(dbms_random.value(1000, 6000)) as sal
+from all_objects
+where rownum <= 20000;
+select count(*), count(distinct deptno) from emp;
+select distinct deptno from emp;
+begin
+  dbms_stats.gather_table_stats( 
+    ownname => 'BENCHMARK',
+    tabname => 'EMP' );
+end;
+/
+drop table above_avg_emp;
+create table above_avg_emp as select * from emp where 1!=1;
+drop table below_avg_emp;
+create table below_avg_emp as select * from emp where 1!=1;
+drop type dept_avg_sal_list;
+create or replace type dept_avg_sal as object
+(
+  deptno number(2),
+  avg_sal number
+);
+/
+create or replace type dept_avg_sal_list as table of dept_avg_sal;
+/
+create or replace procedure insert_emp_plsql
+as
+  l_dept_avg_sal_list dept_avg_sal_list;
+begin
+  -- first store the average salary
+  select dept_avg_sal( deptno, avg(sal) )
+  bulk collect into l_dept_avg_sal_list
+  from emp
+  group by deptno;
+
+  for i in ( select emp.deptno, ename, sal, t.avg_sal as avg_sal
+             from emp, table( l_dept_avg_sal_list ) t
+             where emp.deptno = t.deptno )
+  loop
+    if( i.sal >= i.avg_sal ) then
+      insert into above_avg_emp( deptno, ename, sal) values( i.deptno, i.ename, i.sal );
+    else
+      insert into below_avg_emp( deptno, ename, sal) values( i.deptno, i.ename, i.sal );
+    end if;
+  end loop;
+end;
+/
+show errors;
+create or replace procedure insert_emp_sql
+as
+begin
+  insert 
+    when above_avg_flag = 'Y' then
+      into above_avg_emp( deptno, ename, sal) values( deptno, ename, sal)
+    when above_avg_flag = 'N' then
+      into below_avg_emp( deptno, ename, sal) values( deptno, ename, sal)
+    select deptno, ename, sal, 'Y' as above_avg_flag
+    from emp e1
+    where e1.sal >= (select avg(sal) 
+                    from emp e2
+                    where e1.deptno = e2.deptno)
+    union all
+    select deptno, ename, sal, 'N'
+    from emp e1
+    where e1.sal < (select avg(sal) 
+                    from emp e2
+                    where e1.deptno = e2.deptno);
+end;
+/
+show errors;
+create or replace procedure insert_emp_sql
+as
+begin
+  insert 
+    when above_avg_flag = 'Y' then
+      into above_avg_emp( deptno, ename, sal) values( deptno, ename, sal)
+    when above_avg_flag = 'N' then
+      into below_avg_emp( deptno, ename, sal) values( deptno, ename, sal)
+      with avg_sal as
+      (
+      select deptno, avg(sal) as avg_sal
+      from emp
+      group by deptno
+      )
+      select e1.deptno, e1.ename, e1.sal, 
+            case when sal >= avg_sal then 'Y' else 'N' end above_avg_flag
+      from emp e1, avg_sal e2
+      where e1.deptno = e2.deptno
+      order by deptno, ename, sal;
+end;
+/
+show errors;
+create or replace procedure insert_emp_sql_analytics
+as
+begin
+  insert 
+    when sal >= avg_sal then
+      into above_avg_emp( deptno, ename, sal) values( deptno, ename, sal)
+    when sal < avg_sal then
+      into below_avg_emp( deptno, ename, sal) values( deptno, ename, sal)
+    select deptno, ename, sal, avg_sal
+    from
+    (
+      select deptno, ename, sal, avg( sal ) over( partition by deptno ) avg_sal
+      from emp
+    );
+end;
+/
+show errors;
+exec insert_emp_plsql
+exec insert_emp_sql
+exec insert_emp_sql2
+exec insert_emp_sql_analytics
+delete above_avg_emp;
+delete below_avg_emp;
+commit;
+set timing on
+exec runstats_pkg.rs_start
+exec insert_emp_plsql
+exec runstats_pkg.rs_middle
+exec insert_emp_sql
+exec runstats_pkg.rs_stop(50)
+exec runstats_pkg.rs_start
+exec insert_emp_sql
+exec runstats_pkg.rs_middle
+exec insert_emp_sql_analytics
+exec runstats_pkg.rs_stop(50)
+set timing off
+spool off
